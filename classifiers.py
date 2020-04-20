@@ -32,6 +32,6 @@ class PixelClassifier(PatchClassifier):
             self.threshold = np.max(mses) * 1.05 # wiggle room
 
     def __call__(self, patch):
-        assert patch.shape == self.patch[0].shape
+        assert patch.shape == self.patches[0].shape
 
         return np.mean((patch - self.patches)**2) < self.threshold
