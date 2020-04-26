@@ -63,12 +63,10 @@ class HueClassifier(PatchClassifier):
             mses = [np.mean((patch - self.patches)**2) 
                     for patch in self.patches]
             self.threshold = np.quantile(mses, 0.9) * 1.05 # wiggle room
-            print(f'choosing threshold of {self.threshold}')
 
     def __call__(self, patch):
         hue = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV).mean((0,1))[0]
         dist = np.mean((hue - self.patches)**2)
-        print(f'distance of patch: {dist}')
 
         return dist < self.threshold
 
@@ -116,3 +114,15 @@ class LBPClassifier(PatchClassifier):
 
         kl_divs = [self.kl_div(histogram, hist) for hist in self.hists]
         return np.mean(kl_divs) < self.threshold
+
+class LBPHueClassifier(PatchClassifier):
+    def __init__(self, patches):
+        self.hue = HueClassifier(patches)
+        self.lbp = LBPClassifier(patches)
+
+    def __call__(self, patch):
+        hue = self.hue(patch)
+        lbp = self.lbp(patch)
+        print(f'hue decision is {hue} and LBP is {lbp}')
+
+        return hue and lbp

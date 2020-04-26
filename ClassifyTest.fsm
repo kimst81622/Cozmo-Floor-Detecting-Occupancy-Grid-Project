@@ -5,7 +5,7 @@ from math import ceil
 from cozmo_fsm import *
 from classifiers import *
 
-PATCH_FILE = 'hal_wood_floor.npy'
+PATCH_FILE = 'floors/hal_wood_big.npy'
 
 class ClassifyTest(StateMachineProgram):
   """
@@ -19,7 +19,7 @@ class ClassifyTest(StateMachineProgram):
     robot.camera.color_image_enabled = True
 
     patches = np.load(PATCH_FILE)
-    self.classifier = HueClassifier(patches)
+    self.classifier = LBPHueClassifier(patches)
     self.patch_width = patches.shape[1]
     self.patch_height = patches.shape[2]
 
