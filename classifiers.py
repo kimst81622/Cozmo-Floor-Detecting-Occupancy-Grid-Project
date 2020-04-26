@@ -1,4 +1,5 @@
 import numpy as np
+from skimage.feature import local_binary_pattern
 import cv2
 
 class PatchClassifier():
@@ -70,3 +71,48 @@ class HueClassifier(PatchClassifier):
         print(f'distance of patch: {dist}')
 
         return dist < self.threshold
+
+class LBPClassifier(PatchClassifier):
+    """
+    Patch classification with KL divergence on histograms of LBP features.
+    """
+    def __init__(self, patches, threshold=None, radius=2, n_points=16,
+            method='uniform'):
+        assert isinstance(patches, np.ndarray) and len(patches.shape) == 4
+
+        self.radius = radius
+        self.n_points = n_points
+        self.method = method
+
+        lbps = [local_binary_pattern(cv2.cvtColor(patch,
+            cv2.COLOR_BGR2GRAY), n_points, radius, method) 
+            for patch in patches]
+
+        self.n_bins = int(np.max([lbp.max() for lbp in lbps]) + 1)
+        self.hists = [np.histogram(lbp, density=True, bins=self.n_bins, 
+            range=(0,self.n_bins))[0] for lbp in lbps]
+
+        pairwise_divs = [[self.kl_div(hist_one, hist_two) for hist_two in
+            self.hists if hist_one is not hist_two] for hist_one in self.hists]
+
+        mean_divs = np.array(pairwise_divs).mean(1)
+        self.threshold = np.quantile(mean_divs, 0.9) * 1.05 # wiggle room
+
+    def kl_div(self, p, q):
+        """
+        Kullback-Leibler divergence for two histograms, from the skimage
+        LBP demo.
+        """
+        p = np.asarray(p)
+        q = np.asarray(q)
+        filt = np.logical_and(p != 0, q != 0)
+        return np.sum(p[filt] + np.log2(p[filt] / q[filt]))
+
+    def __call__(self, patch):
+        lbp = local_binary_pattern(cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY),
+                self.n_points, self.radius, self.method)
+        histogram = np.histogram(lbp, density=True, bins=self.n_bins,
+                range=(0, self.n_bins))[0]
+
+        kl_divs = [self.kl_div(histogram, hist) for hist in self.hists]
+        return np.mean(kl_divs) < self.threshold
