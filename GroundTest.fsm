@@ -13,7 +13,30 @@ class GroundTest(StateMachineProgram):
       super().start(event)
       camera_center = (320/2, 240/2)
       point = self.robot.kine.project_to_ground(*camera_center)
-      print('Camera center point is at %4.1f, %4.1f' % (point[0], point[1]))
+      base_to_world = robot.kine.base_to_link('world')
+      world_point = base_to_world.dot(point)
+      print('Camera center point is at %4.1f, %4.1f' % (world_point[0], world_point[1]))
+
+
+      patch_top_left = (140, 100)
+      patch_top_right = (180, 100)
+      patch_bot_right = (180, 140)
+      patch_bot_left = (140, 140)
+      
+      top_left_point = self.robot.kine.project_to_ground(*patch_top_left)
+      top_right_point = self.robot.kine.project_to_ground(*patch_top_right)
+      bot_right_point = self.robot.kine.project_to_ground(*patch_bot_right)
+      bot_left_point = self.robot.kine.project_to_ground(*patch_bot_left)
+      
+      world_top_left_point = base_to_world.dot(top_left_point)
+      world_top_right_point = base_to_world.dot(top_right_point)
+      world_bot_right_point = base_to_world.dot(bot_right_point)
+      world_bot_left_point = base_to_world.dot(bot_left_point)
+
+      print('Top Left', world_top_left_point)
+      print('Top Right', world_top_right_point)
+      print('Bottom Left', world_bot_left_point)
+      print('Bottom Right', world_bot_right_point)
 
   class GrabPatch(StateNode):
     def start(self,event=None):

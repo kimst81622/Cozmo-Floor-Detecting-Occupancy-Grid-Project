@@ -1,0 +1,115 @@
+import numpy as np
+import cv2
+
+from math import ceil
+from cozmo_fsm import *
+from classifiers import *
+
+PATCH_FILE = 'floors/hal_wood_big.npy'
+
+class ClassifyGridTest(StateMachineProgram):
+  """
+  Slight modifications to GroundTest to use a simple classifier.
+  """
+  def __init__(self):
+    super().__init__(viewer_crosshairs=True, particle_viewer=True)
+    self.robot.og_width = 500
+    self.robot.og_height = 500
+    self.robot.occupancy_grid = np.full((self.robot.og_width,self.robot.og_height,3),125, dtype=np.uint8)
+    
+  def start(self):
+    super().start()
+    robot.camera.color_image_enabled = True
+
+    patches = np.load(PATCH_FILE)
+    self.classifier = LBPHueClassifier(patches)
+    self.patch_width = patches.shape[1]
+    self.patch_height = patches.shape[2]
+
+  def user_image(self,image,gray):
+    cv2.waitKey(1)
+    cv2.imshow('Occupancy Grid',self.robot.occupancy_grid)
+
+  class ProjectToGround(StateNode):
+    def start(self,event=None):
+      super().start(event)
+      camera_center = (320/2, 240/2)
+
+      point = self.robot.kine.project_to_ground(*camera_center)
+
+      base_to_world = robot.kine.base_to_link('world')
+
+      world_point = base_to_world.dot(point)
+
+      print('Camera center point is at %4.1f, %4.1f' % (world_point[0], world_point[1]))
+
+      gridX = int(world_point[0])+self.robot.og_width//2
+      gridY = int(world_point[1])+self.robot.og_height//2
+
+      print('Grid point is at %4.1f, %4.1f' % (gridX, gridY))
+
+      if isinstance(event, FailureEvent):
+        patch = np.zeros((10,10,3), dtype=np.uint8)
+        self.robot.occupancy_grid[gridX-5:gridX+5,gridY-5:gridY+5,:] = patch
+      elif isinstance(event, SuccessEvent):
+        patch = np.full((10,10,3), 225, dtype=np.uint8)
+        self.robot.occupancy_grid[gridX-5:gridX+5,gridY-5:gridY+5,:] = patch
+
+  class GrabPatch(StateNode):
+    def start(self,event=None):
+      super().start(event)
+      img = np.array(self.robot.world.latest_image.raw_image)
+
+      self.parent.patch = cv2.cvtColor(img[120 - self.parent.patch_width // 2:
+              120 + ceil(self.parent.patch_width / 2),
+              160 - self.parent.patch_height // 2:
+              160 + ceil(self.parent.patch_height / 2), :],
+              cv2.COLOR_RGB2BGR)
+
+      patch2 = cv2.cvtColor(self.parent.patch, cv2.COLOR_RGB2BGR)
+      #cv2.imshow('patch',patch2)
+      #cv2.waitKey(0)
+
+      # do classification
+      floor = self.parent.classifier(self.parent.patch)
+      print(floor)
+      if floor:
+        self.post_success()
+      else:
+        self.post_failure()
+
+
+  $setup{
+    dispatch: StateNode()
+    dispatch =TM('p')=> project
+    dispatch =TM('g')=> grab
+
+    dispatch =TM('w')=> smallforward
+    dispatch =TM('a')=> smallleft
+    dispatch =TM('s')=> smallback
+    dispatch =TM('d')=> smallright
+    dispatch =TM('W')=> bigforward
+    dispatch =TM('A')=> bigleft
+    dispatch =TM('S')=> bigback
+    dispatch =TM('D')=> bigright
+    
+
+    smallforward: Forward(10) =C=> grab
+    smallleft: Turn(22.5) =C=> grab
+    smallback: Forward(-10) =C=> grab
+    smallright: Turn(-22.5) =C=> grab
+    bigforward: Forward(40) =C=> grab
+    bigleft: Turn(90) =C=> grab
+    bigback: Forward(-40) =C=> grab
+    bigright: Turn(-90) =C=> grab
+
+    grab: self.GrabPatch() =S=> project
+    grab =F=> project
+    
+    project: self.ProjectToGround() =N=> dispatch
+
+    floor: Say('floor') =C=> dispatch
+
+    no_floor: Say('nope') =C=> dispatch
+
+  }
