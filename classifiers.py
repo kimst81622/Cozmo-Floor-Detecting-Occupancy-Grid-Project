@@ -62,7 +62,7 @@ class HueClassifier(PatchClassifier):
             # set threshold to try to include all patches
             mses = [np.mean((patch - self.patches)**2) 
                     for patch in self.patches]
-            self.threshold = np.quantile(mses, 0.9) * 1.05 # wiggle room
+            self.threshold = np.quantile(mses, 0.95) * 1.05 # wiggle room
 
     def __call__(self, patch):
         hue = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV).mean((0,1))[0]
@@ -94,7 +94,7 @@ class LBPClassifier(PatchClassifier):
             self.hists if hist_one is not hist_two] for hist_one in self.hists]
 
         mean_divs = np.array(pairwise_divs).mean(1)
-        self.threshold = np.quantile(mean_divs, 0.9) * 1.05 # wiggle room
+        self.threshold = np.quantile(mean_divs, 0.95) * 1.05 # wiggle room
 
     def kl_div(self, p, q):
         """
