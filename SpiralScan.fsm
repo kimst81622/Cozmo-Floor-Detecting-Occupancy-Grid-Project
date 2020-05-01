@@ -10,6 +10,8 @@ class SpiralScan(StateMachineProgram):
         self.iterVal = 0
         self.startDistance = 10
         self.deltaDistance = 10
+        self.patchWidth = 40
+        self.headAngle = -5
 
     def start(self):
         super().start()
@@ -22,21 +24,31 @@ class SpiralScan(StateMachineProgram):
                 value = event.data
                 self.parent.iterVal = value
             img = np.array(self.robot.world.latest_image.raw_image)
-            self.parent.patch = img[115:125, 155:165, :]
-            patch2 = cv2.cvtColor(self.parent.patch, cv2.COLOR_RGB2BGR)
-            patch2 = np.expand_dims(patch2, 0)
-            if value == 0:
-                self.parent.patches = patch2
-            else:
-                self.parent.patches = np.append(self.parent.patches, patch2, axis=0)
-            print(value, self.parent.patches.shape)
+            hori_num = (160-self.parent.patchWidth//2)//self.parent.patchWidth
+            vert_num = (120-self.parent.patchWidth//2)//self.parent.patchWidth
+            for i in range(-hori_num, hori_num+1):
+                for j in range(-vert_num, vert_num+1):
+                    y1 = (120-self.parent.patchWidth//2)-self.parent.patchWidth*j
+                    y2 = y1 + self.parent.patchWidth
+                    x1 = (160-self.parent.patchWidth//2)-self.parent.patchWidth*i
+                    x2 = x1 + self.parent.patchWidth
+                    self.parent.patch = img[y1:y2, x1:x2, :]
+                    patch2 = cv2.cvtColor(self.parent.patch, cv2.COLOR_RGB2BGR)
+                    patch2 = np.expand_dims(patch2, 0)
+                    if value == 0:
+                        self.parent.patches = patch2
+                    else:
+                        self.parent.patches = np.append(self.parent.patches, patch2, axis=0)
+                    print(value, self.parent.patches.shape)
             self.post_completion()
 
     class SavePatches(StateNode):
         def start(self,event=None):
             super().start(event)
-            with open('test.npy', 'wb') as f:
+            with open('test'+str(abs(self.parent.headAngle))+'.npy', 'wb') as f:
                 np.save(f, self.parent.patches)
+            self.parent.patches = None
+            self.post_completion()
     
     class SpiralForward(Forward):
         def start(self, event=None):
@@ -47,15 +59,28 @@ class SpiralScan(StateMachineProgram):
             print(iterVal, self.distance)
             super().start(event)
 
+    class NextHeadAngle(SetHeadAngle):
+        def start(self, event=None):
+            if isinstance(event, DataEvent):
+                outer_value = event.data
+            self.angle = degrees(self.parent.headAngle*outer_value)
+            super().start(event)
+
     $setup{
-        start: SetHeadAngle(-5) 
-        start =C=> outer_loop
+        outer_loop: Iterate(5)
+        outer_loop =D=> tilt_head =C=> inner_loop
+        tilt_head: NextHeadAngle()
 
-        outer_loop: Iterate(50)
-        outer_loop =D=> grab =C=> move_spiral
-        outer_loop =C=> save
+            inner_loop: Iterate(50)
+            inner_loop =D=> grab =C=> move_spiral
 
-        grab: self.GrabPatch()
-        move_spiral: self.SpiralForward() =C=> Turn(90) =T(2)=> Say('Taking Patch') =CNext=> outer_loop
-        save: self.SavePatches()
+            grab: self.GrabPatch()
+            move_spiral: self.SpiralForward() =C=> Turn(90) =CNext=> inner_loop
+            inner_loop =C=> save
+            save: self.SavePatches()
+
+            save =CNext=> outer_loop
+        
+        outer_loop =C=> Say('Done')
+
     }
