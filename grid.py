@@ -61,11 +61,11 @@ class OccupancyGrid():
         if not self.robot.classifier(patch):
             # it's an obstacle
             #self.grid[grid_top_x:grid_bot_x, grid_top_y:grid_bot_y] = 0
-            self.grid[grid_x-15:grid_x+15, grid_y-15:grid_y+15] = 0
+            self.grid[grid_x-25:grid_x+25, grid_y-25:grid_y+25] = 0
         else:
             # pretty sure it's not
             #self.grid[grid_top_x:grid_bot_x, grid_top_y:grid_bot_y] = 150
-            self.grid[grid_x-15:grid_x+15, grid_y-15:grid_y+15] = 150
+            self.grid[grid_x-25:grid_x+25, grid_y-25:grid_y+25] = 150
 
     def update_location(self):
         """

@@ -69,7 +69,7 @@ class SpiralScan(StateMachineProgram):
     $setup{
         outer_loop: Iterate(5)
         outer_loop =D=> tilt_head =C=> inner_loop
-        tilt_head: NextHeadAngle()
+        tilt_head: self.NextHeadAngle()
 
             inner_loop: Iterate(50)
             inner_loop =D=> grab =C=> move_spiral
