@@ -1,6 +1,7 @@
 import numpy as np
-from skimage.feature import local_binary_pattern
 import cv2
+
+from skimage.feature import local_binary_pattern
 
 class PatchClassifier():
     """
@@ -15,6 +16,7 @@ class PatchClassifier():
 class PixelClassifier(PatchClassifier):
     """
     Patch classification with simple MSE on pixels.
+    Doesn't perform well at all.
     """
     def __init__(self, patches, threshold=None):
         """
@@ -53,7 +55,6 @@ class HueClassifier(PatchClassifier):
         self.patches = np.stack([cv2.cvtColor(patch, cv2.COLOR_BGR2HSV)
             for patch in patches])
         # only average hue for each patch needed
-        print(self.patches.shape)
         self.patches = self.patches.mean((1,2))[:, 0]
         
         if threshold is not None:
@@ -116,6 +117,9 @@ class LBPClassifier(PatchClassifier):
         return np.mean(kl_divs) < self.threshold
 
 class LBPHueClassifier(PatchClassifier):
+    """
+    Combine an LBP-based and hue-based classifier.
+    """
     def __init__(self, patches):
         self.hue = HueClassifier(patches)
         self.lbp = LBPClassifier(patches)
@@ -123,6 +127,5 @@ class LBPHueClassifier(PatchClassifier):
     def __call__(self, patch):
         hue = self.hue(patch)
         lbp = self.lbp(patch)
-        print(f'hue decision is {hue} and LBP is {lbp}')
 
         return hue and lbp

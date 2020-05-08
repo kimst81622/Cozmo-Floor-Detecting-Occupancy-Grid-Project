@@ -1,4 +1,5 @@
 import numpy as np
+from skimage.draw import polygon
 import cv2
 
 ### codes for grid
@@ -9,68 +10,91 @@ import cv2
 
 class OccupancyGrid():
     """
-    Occupancy grid object. Assumes robot has a "classifier" object.
+    Occupancy grid object. Assumes robot has a "classifier" object, which
+    you would set up in the FSM using this.
+
+    Uses all the patches in the bottom half of the image.
     """
-    def __init__(self, robot, patch_size, grid_size=2000):
+    def __init__(self, robot, patch_size, grid_size=3000):
         self.robot = robot
         self.patch_size = patch_size
         self.grid_size = grid_size
         self.grid = np.full((grid_size, grid_size), 100, dtype=np.uint8)
         self.id = robot.pose.origin_id
 
-    def process_patch(self, patch):
+    def process_patch(self, image):
         """
-        Adds the information from a patch to the map. Assumes the patch
+        Adds the information from an image to the map. Assumes the image
         was just taken (so robot and camera location/orientation are the
-        same).
+        same). Uses the whole bottom half of the image, instead of just
+        the center patch.
+
+        If an obstacle is detected, the patches above it are not added to
+        the grid (since their depths calculated from project_to_ground will
+        be off).
         """
-        # might break for odd patch sizes
-        # also, only classifies the middle 1/4 of the patch
-        # because the edges are less certain
-        # commented out for now cause there are issues with mapping
-        camera_center = (160, 120)
-        #patch_top_left = (camera_center[0] - self.patch_size[0] // 4,
-                #camera_center[1] - self.patch_size[1] // 4)
-        #patch_top_right = (camera_center[0] + self.patch_size[0] // 4,
-                #camera_center[1] - self.patch_size[1] // 4)
-        #patch_bot_left = (camera_center[0] - self.patch_size[0] // 4,
-                #camera_center[1] + self.patch_size[1] // 4)
-        #patch_bot_right = (camera_center[0] + self.patch_size[0] // 4,
-                #camera_center[1] + self.patch_size[1] // 4)
+        # loop over all the patches in the bottom half
+        # extracting them, classifying them, and handling the grid logic
+        camera_center = (120, 160)
+        h_patch_num = (camera_center[0] - self.patch_size[0]//2) // \
+                self.patch_size[0]
+        w_patch_num = (camera_center[1] - self.patch_size[1]//2) // \
+                self.patch_size[1]
 
-        #top_left_point = self.robot.kine.project_to_ground(*patch_top_left)
-        #top_right_point = self.robot.kine.project_to_ground(*patch_top_right)
-        #bot_right_point = self.robot.kine.project_to_ground(*patch_bot_right)
-        #bot_left_point = self.robot.kine.project_to_ground(*patch_bot_left)
-        center_point = self.robot.kine.project_to_ground(*camera_center)
+        for j in range(-w_patch_num, w_patch_num+1):
+            # loop over columns first, so the column loop can break on obstacles
 
-        base_to_world = self.robot.kine.base_to_link('world')
-        #world_top_left_point = base_to_world.dot(top_left_point)
-        #world_top_right_point = base_to_world.dot(top_right_point)
-        #world_bot_right_point = base_to_world.dot(bot_right_point)
-        #world_bot_left_point = base_to_world.dot(bot_left_point)
-        center_world = base_to_world.dot(center_point)
+            for i in range(h_patch_num, -1, -1):
+                # patch extraction
+                x1 = (camera_center[0] - self.patch_size[0] // 2) + \
+                        self.patch_size[0] * i
+                y1 = (camera_center[1] - self.patch_size[1] // 2) + \
+                        self.patch_size[1] * j
 
-        #grid_top_x = int(world_top_left_point[0]) + self.grid_size // 2
-        #grid_top_y = int(world_top_left_point[1]) + self.grid_size // 2
-        #grid_bot_x = int(world_bot_right_point[0]) + self.grid_size // 2
-        #grid_bot_y = int(world_bot_right_point[1]) + self.grid_size // 2
-        grid_x = int(center_world[0]) + self.grid_size // 2
-        grid_y = int(center_world[1]) + self.grid_size // 2
+                x2 = x1 + self.patch_size[0]
+                y2 = y1 + self.patch_size[1]
 
-        if not self.robot.classifier(patch):
-            # it's an obstacle
-            #self.grid[grid_top_x:grid_bot_x, grid_top_y:grid_bot_y] = 0
-            self.grid[grid_x-25:grid_x+25, grid_y-25:grid_y+25] = 0
-        else:
-            # pretty sure it's not
-            #self.grid[grid_top_x:grid_bot_x, grid_top_y:grid_bot_y] = 150
-            self.grid[grid_x-25:grid_x+25, grid_y-25:grid_y+25] = 150
+                patch = cv2.cvtColor(image[x1:x2, y1:y2, :], cv2.COLOR_RGB2BGR)
+
+                # mapping patch to grid coordinates
+                # flip x and y, because that's what project_to_ground expects
+                patch_points = [(y1, x1), (y2, x1), (y2, x2), (y1, x2)]
+                ground_points = [self.robot.kine.project_to_ground(*point)
+                        for point in patch_points]
+                world_points = [self.robot.kine.base_to_link('world').dot(point)
+                        for point in ground_points]
+                grid_points = [(int(p[0]) + self.grid_size // 2, int(p[1])
+                    + self.grid_size // 2) for p in world_points]
+
+                # need to draw a polygon, since image squares map to
+                # grid trapezoids
+                grid_rows, grid_cols = polygon([p[0] for p in grid_points],
+                        [p[1] for p in grid_points], shape=self.grid.shape)
+
+                # now, classify the patch
+                if not self.robot.classifier(patch):
+                    # it's an obstacle
+                    # write in regardless if Cozmo's been there
+                    # since the obstacle could have been added
+                    self.grid[grid_rows, grid_cols] = 0
+
+                    # then break the loop, because further-up patches
+                    # might not be flat on the ground
+                    break
+                else:
+                    # not an obstacle
+                    # leave visited if Cozmo's already been there
+                    grid_patch = self.grid[grid_rows, grid_cols]
+                    if len(grid_patch) > 0 and np.max(grid_patch) != 255:
+                        # no part of the patch was visited, can fill in
+                        self.grid[grid_rows, grid_cols] = 150
+
 
     def update_location(self):
         """
         Update the occupancy grid to mark the robot's current location as
-        explored.
+        explored. Also reset the whole thing if the robot is picked up and
+        potentially moved.
         """
         # first, check to see if the origin_id has changed
         if self.robot.pose.origin_id != self.id:
@@ -92,7 +116,8 @@ class OccupancyGrid():
 
     def show(self):
         """
-        Display the occupancy grid.
+        Display the occupancy grid. Should be called in user_image in an
+        FSM, skipping frames only if computationally necessary.
         """
         cv2.waitKey(1)
         cv2.imshow('Occupancy Grid', self.grid)

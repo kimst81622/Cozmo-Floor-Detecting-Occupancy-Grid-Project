@@ -1,0 +1,43 @@
+import numpy as np
+import cv2
+
+from math import ceil
+from cozmo_fsm import *
+from classifiers import *
+from grid import OccupancyGrid
+
+# use less than the full collection of patches
+# because it runs pretty slowly with the full set
+PATCH_FILE = 'floors/hal_wood_subsampled.npy'
+CLASSIFIER = LBPHueClassifier(np.load(PATCH_FILE))
+PATCH_SIZE = (40, 40)
+
+class GridTest(StateMachineProgram):
+  """
+  Test out the occupancy grid and floor classification code. 
+  Opens the camera and particle viewer so Cozmo can drive around and
+  change his head angle, and displays the updating occupancy grid.
+  """
+  def __init__(self):
+    super().__init__(viewer_crosshairs=True, particle_viewer=True)
+    # these two lines are necessary when plugging in the grid code
+    self.robot.classifier = CLASSIFIER
+    self.grid = OccupancyGrid(self.robot, PATCH_SIZE)
+
+    self.patch_width = PATCH_SIZE[0]
+    self.patch_height = PATCH_SIZE[1]
+    
+  def start(self):
+    super().start()
+    robot.camera.color_image_enabled = True
+
+  def user_image(self,image,gray):
+    # these three lines are necessary when pluggin in the grid code
+    # though they could be set to every few frames for more efficiency
+    self.grid.process_patch(image)
+    self.grid.update_location()
+    self.grid.show()
+
+  $setup{
+    dispatch: StateNode()
+  }
